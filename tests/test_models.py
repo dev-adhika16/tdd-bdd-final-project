@@ -27,7 +27,7 @@ import os
 import logging
 import unittest
 from decimal import Decimal
-from service.models import Product, Category, db
+from service.models import DataValidationError, Product, Category, db
 from service import app
 from tests.factories import ProductFactory
 
@@ -192,3 +192,79 @@ class TestProductModel(unittest.TestCase):
         self.assertEqual(found.count(), count)
         for product in found:
             self.assertEqual(product.category, category)
+            
+    def test_update_product_with_no_id(self):
+        """It should not Update a Product with no id"""
+        product = ProductFactory()
+        product.id = None
+        with self.assertRaises(DataValidationError):
+            product.update()
+
+    def test_deserialize_with_invalid_available_type(self):
+        """It should raise DataValidationError for invalid available type"""
+        product = Product()
+        # Test with string that's not 'true'/'false'
+        data = {
+            "name": "Test Product",
+            "description": "Test Description", 
+            "price": 10.00,
+            "available": "invalid_string",  # Invalid type for boolean
+            "category": "CLOTHS"
+        }
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(data)
+        self.assertIn("Invalid type for boolean [available]", str(context.exception))
+        
+        # Test with integer
+        data["available"] = 123  # Invalid type for boolean
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(data)
+        self.assertIn("Invalid type for boolean [available]", str(context.exception))
+        
+        # Test with list
+        data["available"] = []  # Invalid type for boolean
+        with self.assertRaises(DataValidationError) as context:
+            product.deserialize(data)
+        self.assertIn("Invalid type for boolean [available]", str(context.exception))
+        
+    def test_find_by_price(self):
+        """It should Find Products by Price"""
+        products = ProductFactory.create_batch(10)
+        for product in products:
+            product.create()
+        price = products[0].price
+        count = len([product for product in products if product.price == price])
+        found = Product.find_by_price(price)
+        self.assertEqual(found.count(), count)
+        for product in found:
+            self.assertEqual(product.price, price)
+            
+    def test_find_by_price_string(self):
+        """It should Find Products by Price using string input"""
+        # Create products with specific prices
+        product1 = ProductFactory()
+        product1.price = Decimal('25.99')
+        product1.create()
+        
+        product2 = ProductFactory() 
+        product2.price = Decimal('35.50')
+        product2.create()
+        
+        product3 = ProductFactory()
+        product3.price = Decimal('25.99')  # Same as product1
+        product3.create()
+        
+        # Test finding by price using string input
+        found = Product.find_by_price("25.99")
+        self.assertEqual(found.count(), 2)  # Should find product1 and product3
+        for product in found:
+            self.assertEqual(product.price, Decimal('25.99'))
+            
+        # Test with string containing whitespace and quotes
+        found = Product.find_by_price(' "35.50" ')
+        self.assertEqual(found.count(), 1)  # Should find product2
+        self.assertEqual(found.first().price, Decimal('35.50'))
+        
+        # Test with string containing just whitespace
+        found = Product.find_by_price('  25.99  ')
+        self.assertEqual(found.count(), 2)  # Should find product1 and product3
